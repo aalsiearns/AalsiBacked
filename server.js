@@ -1,34 +1,65 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
-const cheerio = require('cheerio'); // 🤖 हमारा वेब स्क्रैपर टूल
+const cheerio = require('cheerio');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-// 🤖 एडवांस्ड ऑटोमैटिक स्क्रैपर (Dynamic Episode Fetcher)
+// 👇 Yahan tera Vercel wala real API link set kar diya hai!
+const RENIME_API_URL = process.env.RENIME_API_URL || 'https://aalsiapi.vercel.app/api';
+
+// 🤖 Real Renime API Integration Logic
 async function autoScrapeEpisode(animeName, season, episode, language) {
     try {
-        console.log(`🤖 Bot starting search for: ${animeName} | Season: ${season} | Episode: ${episode} | Lang: ${language}`);
+        console.log(`🤖 Fetching for: ${animeName} | Season: ${season} | Episode: ${episode} | Lang: ${language}`);
         
-        // एक डमी चेक: अगर कोई Doraemon का 500 से ऊपर का एपिसोड मांगे, तो हम अलग टेस्टिंग वीडियो देंगे
-        if (animeName.toLowerCase().includes('doraemon') && episode > 500) {
-             return "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4";
+        // 1. Renime API se anime search karo
+        const searchRes = await axios.get(`${RENIME_API_URL}/search?q=${encodeURIComponent(animeName)}`);
+        const results = searchRes.data.results || searchRes.data;
+        
+        if (!results || results.length === 0) {
+            console.log("❌ Anime nahi mila search mein.");
+            return null;
         }
 
-        // डिफ़ॉल्ट रूप से ये एक वर्किंग टेस्टिंग वीडियो रिटर्न करेगा (बाद में हम इसमें असली चीरियो लॉजिक डालेंगे)
-        return "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
+        // Pehla relevant anime ka ID/Slug utha lo
+        const animeId = results[0].id || results[0].slug;
+
+        // 2. Us anime ke episodes fetch karo
+        const episodesRes = await axios.get(`${RENIME_API_URL}/episodes?id=${animeId}`);
+        const episodes = episodesRes.data.episodes || episodesRes.data;
+
+        if (!episodes || episodes.length === 0) {
+            console.log("❌ Episodes nahi mile.");
+            return null;
+        }
+
+        // Requested episode number match karo
+        const targetEpisode = episodes.find(ep => ep.number == episode) || episodes[episode - 1];
+
+        if (!targetEpisode) {
+            console.log(`❌ Episode ${episode} nahi mila.`);
+            return null;
+        }
+
+        const episodeId = targetEpisode.id || targetEpisode.episodeId;
+
+        // 3. Episode ka final embed/streaming link fetch karo
+        const embedRes = await axios.get(`${RENIME_API_URL}/embed?id=${episodeId}`);
+        const videoUrl = embedRes.data.embedUrl || embedRes.data.url || embedRes.data.videoUrl;
+
+        return videoUrl;
 
     } catch (error) {
-        console.error("❌ Scraper failed:", error.message);
+        console.error("❌ Renime API fetch failed:", error.message);
         return null;
     }
 }
 
 app.get('/api/get-anime', async (req, res) => {
-    // अब बैकएंड नाम के साथ सीज़न (s) और एपिसोड (e) भी ले रहा है!
     const { name, lang, s, e } = req.query; 
     
     const season = s || 1;
@@ -40,14 +71,14 @@ app.get('/api/get-anime', async (req, res) => {
     }
 
     try {
-        // सीधा अपने बॉट को काम पर लगाओ
+        // Renime API ke through real video link mangwao
         const scrapedVideoUrl = await autoScrapeEpisode(name, season, episode, requestedLang);
 
         if (scrapedVideoUrl) {
             return res.json({
                 success: true,
                 language: requestedLang,
-                source: `Auto-Scraper 🤖 (S${season} E${episode})`, // वेबसाइट पर तुम्हें यही लिखा दिखेगा!
+                source: `Renime API 🤖 (S${season} E${episode})`,
                 videoUrl: scrapedVideoUrl
             });
         } else {
