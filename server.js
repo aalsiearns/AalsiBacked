@@ -9,84 +9,43 @@ app.use(cors());
 
 const RENIME_API_URL = process.env.RENIME_API_URL || 'https://aalsiapi.vercel.app/api';
 
-async function autoScrapeEpisode(animeName, season, episode, language) {
+// 1. Home / Search Anime from Renime API directly
+app.get('/api/anime-search', async (req, res) => {
     try {
-        console.log(`🤖 Searching: ${animeName} | S${season} E${episode} | Lang: ${language}`);
-        
-        // Clean name (e.g., remove season tags if any)
-        const cleanName = animeName.split(' - ')[0].trim();
+        const query = req.query.q || 'Naruto';
+        const searchRes = await axios.get(`${RENIME_API_URL}/search?q=${encodeURIComponent(query)}`);
+        res.json(searchRes.data);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to search anime" });
+    }
+});
 
-        // 1. Search anime
-        const searchRes = await axios.get(`${RENIME_API_URL}/search?q=${encodeURIComponent(cleanName)}`);
-        const searchData = searchRes.data;
-        const results = searchData.results || searchData.data || searchData;
+// 2. Episodes list from Renime API
+app.get('/api/anime-episodes', async (req, res) => {
+    try {
+        const animeId = req.query.id;
+        const epsRes = await axios.get(`${RENIME_API_URL}/episodes?id=${encodeURIComponent(animeId)}`);
+        res.json(epsRes.data);
+    } catch (err) {
+        res.status(500).json({ error: "Failed to fetch episodes" });
+    }
+});
 
-        if (!Array.isArray(results) || results.length === 0) {
-            console.log("❌ Anime not found in search, trying fallback video...");
-            // Fallback testing stream taaki player chal kar dikhe
-            return "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
-        }
-
-        const animeId = results[0].id || results[0].slug || results[0].animeId;
-
-        // 2. Fetch episodes
-        const episodesRes = await axios.get(`${RENIME_API_URL}/episodes?id=${encodeURIComponent(animeId)}`);
-        const epData = episodesRes.data;
-        const episodes = epData.episodes || epData.data || epData;
-
-        if (!Array.isArray(episodes) || episodes.length === 0) {
-            console.log("❌ Episodes list empty, using fallback video.");
-            return "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
-        }
-
-        let targetEpisode = episodes.find(ep => (ep.number == episode || ep.episode_number == episode));
-        if (!targetEpisode && episodes[episode - 1]) {
-            targetEpisode = episodes[episode - 1];
-        }
-
-        const episodeId = targetEpisode ? (targetEpisode.id || targetEpisode.episodeId) : episodes[0].id;
-
-        // 3. Fetch embed link
+// 3. Original Video Stream/Embed Link Endpoint
+app.get('/api/get-anime', async (req, res) => {
+    const { id, episodeId } = req.query; // Ab hum direct ID bhej sakte hain
+    try {
         const embedRes = await axios.get(`${RENIME_API_URL}/embed?id=${encodeURIComponent(episodeId)}`);
         const embedData = embedRes.data;
         const videoUrl = embedData.embedUrl || embedData.url || embedData.videoUrl || embedData.stream;
 
-        return videoUrl || "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
-
-    } catch (error) {
-        console.error("❌ Error in scraping:", error.message);
-        // Fallback video tak ki user ko error na dikhe aur player test ho sake
-        return "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8";
-    }
-}
-
-app.get('/api/get-anime', async (req, res) => {
-    const { name, lang, s, e } = req.query; 
-    
-    const season = s || 1;
-    const episode = e || 1;
-    const requestedLang = lang || 'hindi';
-
-    if (!name) {
-        return res.status(400).json({ success: false, error: "Anime ka naam zaroori hai!" });
-    }
-
-    try {
-        const scrapedVideoUrl = await autoScrapeEpisode(name, season, episode, requestedLang);
-
-        if (scrapedVideoUrl) {
-            return res.json({
-                success: true,
-                language: requestedLang,
-                source: `Renime Engine 🤖 (S${season} E${episode})`,
-                videoUrl: scrapedVideoUrl
-            });
+        if (videoUrl) {
+            res.json({ success: true, videoUrl: videoUrl, source: "Renime Direct 🤖" });
         } else {
-            return res.json({ success: false, error: "Episode link nahi mila." });
+            res.json({ success: false, error: "Link nahi mila" });
         }
-
     } catch (error) {
-        res.status(500).json({ success: false, error: "Server error." });
+        res.status(500).json({ success: false, error: "Server error" });
     }
 });
 
