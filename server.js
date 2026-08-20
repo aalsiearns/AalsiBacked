@@ -7,8 +7,10 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-const RENIME_API_URL = process.env.RENIME_API_URL || 'https://aalsiapi.vercel.app/api';
+// 🔥 Yeh hai hamara naya Tatakai API backend link
+const TATAKAI_API_URL = 'https://tatakai-api-indol.vercel.app';
 
+// 🎯 Main Endpoint jise Frontend call karta hai (/api/get-anime)
 app.get('/api/get-anime', async (req, res) => {
     const { name, s, e } = req.query; 
     
@@ -16,47 +18,40 @@ app.get('/api/get-anime', async (req, res) => {
     const episode = e || 1;
     const cleanName = name ? name.split(' - ')[0].split(' (')[0].trim() : "Naruto";
 
-    console.log(`🤖 Request for: ${cleanName} | S${season} E${episode}`);
+    console.log(`🤖 Proxying request to Tatakai for: ${cleanName} | S${season} E${episode}`);
 
     try {
-        // 1. Try searching on Renime API
-        const searchRes = await axios.get(`${RENIME_API_URL}/search?q=${encodeURIComponent(cleanName)}`, { timeout: 5000 });
-        const results = searchRes.data.results || searchRes.data.data || searchRes.data;
+        // Tatakai API par request forward karte hain (yahan routes apne hisab se map honge)
+        const response = await axios.get(`${TATAKAI_API_URL}/api/search?q=${encodeURIComponent(cleanName)}`, { timeout: 8000 });
+        
+        // Agar Tatakai se data milta hai toh uska pehla video/stream link nikalenge
+        const data = response.data;
+        const videoUrl = data.videoUrl || data.stream || data.url || (data.results && data.results[0]?.stream);
 
-        if (Array.isArray(results) && results.length > 0) {
-            const animeId = results[0].id || results[0].slug || results[0].animeId;
-
-            // 2. Fetch episodes
-            const epsRes = await axios.get(`${RENIME_API_URL}/episodes?id=${encodeURIComponent(animeId)}`, { timeout: 5000 });
-            const episodes = epsRes.data.episodes || epsRes.data.data || epsRes.data;
-
-            if (Array.isArray(episodes) && episodes.length > 0) {
-                let targetEp = episodes.find(ep => (ep.number == episode || ep.episode_number == episode)) || episodes[episode - 1] || episodes[0];
-                const epId = targetEp.id || targetEp.episodeId;
-
-                // 3. Fetch Embed Link
-                const embedRes = await axios.get(`${RENIME_API_URL}/embed?id=${encodeURIComponent(epId)}`, { timeout: 5000 });
-                const videoUrl = embedRes.data.embedUrl || embedRes.data.url || embedRes.data.videoUrl || embedRes.data.stream;
-
-                if (videoUrl) {
-                    return res.json({ success: true, videoUrl: videoUrl, source: "Renime API 🤖" });
-                }
-            }
+        if (videoUrl) {
+            return res.json({ success: true, videoUrl: videoUrl, source: "Tatakai API ⚡" });
+        } else {
+            // Agar direct link nahi mila toh fallback working stream bhej denge taaki player chale
+            return res.json({
+                success: true,
+                videoUrl: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+                source: "Tatakai Fallback ⚡"
+            });
         }
-    } catch (err) {
-        console.log("⚠️ Scraper notice/fallback active:", err.message);
-    }
 
-    // 🛡️ Fallback Working Stream (Taaki player kabhi error na de)
-    return res.json({
-        success: true,
-        videoUrl: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
-        source: "Aalsi Fallback Stream ⚡"
-    });
+    } catch (err) {
+        console.error("❌ Tatakai Proxy Error:", err.message);
+        // Error aane par bhi fallback stream bhejenge taaki user ko error na dikhe
+        return res.json({
+            success: true,
+            videoUrl: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+            source: "Aalsi Backup Stream ⚡"
+        });
+    }
 });
 
 app.get('/', (req, res) => {
-    res.send('Aalsi Anime Backend is Running! 🚀');
+    res.send('Aalsi Proxy Backend (Tatakai Connected) is Running! 🚀');
 });
 
 app.listen(PORT, () => {
